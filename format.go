@@ -10,36 +10,6 @@ import (
 	"time"
 )
 
-// printEntries prints out the list of entries
-// If flags.longListing is false, we just show names. If it is true, we show details.
-func printEntries(dir string, entries []Entry, flags lsFlags) {
-	if flags.longListing {
-		// First, print "total" line that `ls -l` typically includes
-		// We'll sum up st_blocks (512-byte blocks). On many systems, that's in syscall.Stat_t.
-		total := int64(0)
-		for _, e := range entries {
-			st := e.Info.Sys()
-			if st, ok := st.(*syscall.Stat_t); ok {
-				total += int64(st.Blocks) * 512 / 1024
-			}
-		}
-		// If you want the exact block size as `ls`, you may need to multiply or configure differently.
-		fmt.Printf("total %d\n", total)
-
-		// Now print each entry in "long" format
-		for _, e := range entries {
-			printLong(e)
-		}
-	} else {
-		// Normal (multi-column in real ls) but we’ll just do single-line for each in this example
-		for _, e := range entries {
-			colored := colorize(e.Name, e.Info.Mode())
-			fmt.Printf("%s  ", colored)
-		}
-		fmt.Println()
-	}
-}
-
 // printLong prints one entry in "ls -l" style
 func printLong(e Entry) {
 	st, ok := e.Info.Sys().(*syscall.Stat_t)
@@ -59,7 +29,7 @@ func printLong(e Entry) {
 	usrName := getUserName(st.Uid)
 	grpName := getGroupName(st.Gid)
 
-	// 4) File size (for normal files) or major/minor for device
+	// 4) File size (or device info)
 	sizeOrDevice := strconv.FormatInt(e.Info.Size(), 10)
 
 	// 5) Time
@@ -67,18 +37,16 @@ func printLong(e Entry) {
 
 	// 6) Name
 	nameStr := colorize(e.Name, e.Info.Mode())
-	// If it's a symlink, append -> target
-	if e.Info.Mode()&os.ModeSymlink != 0 {
-		nameStr += " -> " + e.LinkTarget
+	if e.Info.Mode()&os.ModeSymlink != 0 && e.LinkTarget != "" {
+		targetInfo, err := os.Stat(e.LinkTarget)
+		if err != nil {
+			// fallback: just print uncolored target
+			nameStr += " -> " + e.LinkTarget
+		} else {
+			nameStr += " -> " + colorize(e.LinkTarget, targetInfo.Mode())
+		}
 	}
 
-	// Typical `ls -l` output layout:
-	//
-	// drwxr-xr-x  2 user  group  4096 Jun  4 12:34 myfolder
-	// or
-	// -rw-r--r--  1 user  group  1042 Oct 19  2022 somefile.txt
-	//
-	// We'll do something like:
 	fmt.Printf("%s %3d %-8s %-8s %8s %s %s\n",
 		modeStr,
 		nlink,
@@ -89,115 +57,58 @@ func printLong(e Entry) {
 		nameStr)
 }
 
-// formatTime tries to replicate the “ls -l” time format
-// If the file’s mtime is older than ~6 months, standard `ls` shows the year instead of HH:MM.
+func getUserName(uid uint32) string {
+	usr, err := user.LookupId(strconv.Itoa(int(uid)))
+	if err != nil {
+		return strconv.Itoa(int(uid))
+	}
+	return usr.Username
+}
+
+func getGroupName(gid uint32) string {
+	grp, err := user.LookupGroupId(strconv.Itoa(int(gid)))
+	if err != nil {
+		return strconv.Itoa(int(gid))
+	}
+	return grp.Name
+}
 
 func formatTime(t time.Time) string {
-	sixMonthsAgo := time.Now().AddDate(0, -6, 0)
-	if t.Before(sixMonthsAgo) {
-		// older than 6 months => "Mon _2  2006"
-		return t.Format("Jan  2  2006")
+	now := time.Now()
+	if now.Sub(t) > (time.Hour*24*30*6) || t.After(now) {
+		return t.Format("Jan 02  2006")
 	}
-	// else => "Mon _2 15:04"
-	return t.Format("Jan  2 15:04")
+	return t.Format("Jan 02 15:04")
 }
 
-func modeToString(m os.FileMode) string {
-	var str strings.Builder
+func modeToString(mode os.FileMode) string {
+	var b strings.Builder
 
-	// 1. File type
 	switch {
-	case m.IsDir():
-		str.WriteRune('d')
-	case m&os.ModeSymlink != 0:
-		str.WriteRune('l')
-	case m&os.ModeNamedPipe != 0:
-		str.WriteRune('p')
-	case m&os.ModeSocket != 0:
-		str.WriteRune('s')
-	case m&os.ModeDevice != 0:
-		if m&os.ModeCharDevice != 0 {
-			str.WriteRune('c')
-		} else {
-			str.WriteRune('b')
-		}
+	case mode.IsDir():
+		b.WriteByte('d')
+	case mode&os.ModeSymlink != 0:
+		b.WriteByte('l')
 	default:
-		str.WriteRune('-')
+		b.WriteByte('-')
 	}
 
-	// 2. Owner bits
-	str.WriteByte(rBit(m, 0400))
-	str.WriteByte(wBit(m, 0200))
-	str.WriteByte(xBit(m, 0100, m&os.ModeSetuid != 0))
-
-	// 3. Group bits
-	str.WriteByte(rBit(m, 0040))
-	str.WriteByte(wBit(m, 0020))
-	str.WriteByte(xBit(m, 0010, m&os.ModeSetgid != 0))
-
-	// 4. Others bits
-	str.WriteByte(rBit(m, 0004))
-	str.WriteByte(wBit(m, 0002))
-	str.WriteByte(xBit(m, 0001, m&os.ModeSticky != 0))
-
-	return str.String()
-}
-
-func rBit(m os.FileMode, mask os.FileMode) byte {
-	if m&mask != 0 {
-		return 'r'
+	perms := []struct {
+		bit  os.FileMode
+		char byte
+	}{
+		{mode & 0400, 'r'}, {mode & 0200, 'w'}, {mode & 0100, 'x'},
+		{mode & 0040, 'r'}, {mode & 0020, 'w'}, {mode & 0010, 'x'},
+		{mode & 0004, 'r'}, {mode & 0002, 'w'}, {mode & 0001, 'x'},
 	}
-	return '-'
-}
 
-func wBit(m os.FileMode, mask os.FileMode) byte {
-	if m&mask != 0 {
-		return 'w'
-	}
-	return '-'
-}
-
-func xBit(m os.FileMode, mask os.FileMode, special bool) byte {
-	if m&mask != 0 {
-		if special {
-			// setuid, setgid, or sticky bit set
-			// typical ls outputs 's' or 't'
-			return 's'
+	for _, p := range perms {
+		if p.bit != 0 {
+			b.WriteByte(p.char)
 		} else {
-			return 'x'
-		}
-	} else {
-		if special {
-			return 'S'
-		} else {
-			return '-'
+			b.WriteByte('-')
 		}
 	}
-}
 
-// A more thorough approach for rwx bits:
-func init() {
-	// We can rewrite the modeToString more robustly:
-	// but for brevity, let's keep it short.
-	// See explanation in the code comment below for a better approach.
-}
-
-// getUserName returns the username for a given UID
-func getUserName(uid uint32) string {
-	u, err := user.LookupId(strconv.FormatUint(uint64(uid), 10))
-	if err != nil {
-		// fallback to UID
-		return strconv.FormatUint(uint64(uid), 10)
-	}
-	return u.Username
-}
-
-// getGroupName returns the group name for a given GID
-func getGroupName(gid uint32) string {
-	g, err := user.LookupGroupId(strconv.FormatUint(uint64(gid), 10))
-	if err != nil {
-		// fallback
-		return strconv.FormatUint(uint64(gid), 10)
-	}
-	return g.Name
+	return b.String()
 }

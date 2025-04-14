@@ -1,0 +1,18 @@
+total 2272
+-rw-rw-r-- 1 vapostol vapostol       0 Apr 14 17:09 ls-output.txt
+-rwxrwxr-x 1 vapostol vapostol 2274272 Apr 14 16:57 my-ls-1
+-rw-rw-r-- 1 vapostol vapostol    1086 Apr 14 16:57 sort.go
+-rw-rw-r-- 1 vapostol vapostol    3131 Apr 14 16:39 listing.go
+-rw-rw-r-- 1 vapostol vapostol       0 Apr 14 16:28 actual.txt
+-rw-rw-r-- 1 vapostol vapostol       0 Apr 14 16:25 link.txt
+lrwxrwxrwx 1 vapostol vapostol       7 Apr 14 16:22 linkdir -> realdir
+drwxrwxr-x 2 vapostol vapostol    4096 Apr 14 16:22 realdir
+-rw-rw-r-- 1 vapostol vapostol    2193 Apr 14 16:19 format.go
+drwxrwxr-x 2 vapostol vapostol    4096 Apr 14 16:06 testdir1
+drwxrwxr-x 2 vapostol vapostol    4096 Apr 14 16:00 testdir
+-rw-rw-r-- 1 vapostol vapostol    1345 Apr 12 18:19 flags.go
+-rw-rw-r-- 1 vapostol vapostol      90 Apr 12 18:19 utils.go
+-rw-rw-r-- 1 vapostol vapostol     319 Apr 12 18:19 main.go
+-rw-rw-r-- 1 vapostol vapostol    3180 Apr 12 17:23 README.md
+-rw-rw-r-- 1 vapostol vapostol     465 Apr 12 17:07 colors.go
+-rw-rw-r-- 1 vapostol vapostol      26 Mar  3 15:45 go.mod

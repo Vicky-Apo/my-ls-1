@@ -2,63 +2,57 @@ package main
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // Entry holds the file information we need for printing
 type Entry struct {
 	Name       string
 	FullPath   string
-	Info       fs.FileInfo
+	Info       os.FileInfo
 	LinkTarget string // if symlink, store the target here
 }
 
 // walk handles the logic of listing directories and optionally recursing
 func walk(paths []string, flags lsFlags) error {
-	for idx, path := range paths {
-		// If multiple paths, print a header like real ls does
-		if len(paths) > 1 {
-			if idx > 0 {
-				fmt.Println()
-			}
-			fmt.Printf("%s:\n", path)
-		}
-
+	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
 			return fmt.Errorf("cannot access '%s': %v", path, err)
 		}
 
-		// If path is directory, list it. If path is a symlink to directory and user appended '/', we also list it.
-		// If it's a file, just show the file.
+		if info.IsDir() && (len(paths) > 1 || flags.recursive || path != ".") {
+			relPath, err := filepath.Rel(".", path)
+			if err != nil {
+				relPath = path
+			}
+			fmt.Printf("./%s:\n", relPath)
+		}
+
 		if info.IsDir() {
-			// list directory
 			entries, err := listDirectory(path, flags)
 			if err != nil {
 				return err
 			}
+			sortEntries(entries, flags)
 			printEntries(path, entries, flags)
 
-			// If recursive, we traverse subdirectories
 			if flags.recursive {
-				// For each subdir, do the same
+				var subDirs []string
 				for _, e := range entries {
 					if e.Info.IsDir() && e.Name != "." && e.Name != ".." {
-						// Recurse
-						subPaths := []string{e.FullPath}
-						err := recurseDir(subPaths, flags)
-						if err != nil {
-							return err
-						}
+						subDirs = append(subDirs, e.FullPath)
 					}
+				}
+				err := walk(subDirs, flags)
+				if err != nil {
+					return err
 				}
 			}
 		} else {
-			// It's a file or symlink to file => just print it
-			// Make a pseudo-Entry so we can reuse print logic
 			linkTarget := ""
 			if info.Mode()&os.ModeSymlink != 0 {
 				t, _ := os.Readlink(path)
@@ -71,7 +65,6 @@ func walk(paths []string, flags lsFlags) error {
 				LinkTarget: linkTarget,
 			}
 			if flags.longListing {
-				// We can mimic "ls -l file"
 				fmt.Printf("total 1\n")
 				printLong(e)
 			} else {
@@ -82,7 +75,6 @@ func walk(paths []string, flags lsFlags) error {
 	return nil
 }
 
-// listDirectory reads the directory contents and returns a list of Entry objects
 func listDirectory(dir string, flags lsFlags) ([]Entry, error) {
 	entries := []Entry{}
 
@@ -96,9 +88,25 @@ func listDirectory(dir string, flags lsFlags) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
+	if flags.showAll {
+		// Manually add '.' and '..'
+		dot, _ := os.Stat(dir)
+		dotdot, _ := os.Stat(filepath.Join(dir, ".."))
+		entries = append(entries, Entry{
+			Name:       ".",
+			FullPath:   dir,
+			Info:       dot,
+			LinkTarget: "",
+		})
+		entries = append(entries, Entry{
+			Name:       "..",
+			FullPath:   filepath.Join(dir, ".."),
+			Info:       dotdot,
+			LinkTarget: "",
+		})
+	}
 
 	for _, fi := range files {
-		// If not showAll, skip hidden files (files that start with '.')
 		if !flags.showAll && strings.HasPrefix(fi.Name(), ".") {
 			continue
 		}
@@ -121,33 +129,28 @@ func listDirectory(dir string, flags lsFlags) ([]Entry, error) {
 		entries = append(entries, e)
 	}
 
-	// Sort the entries
-	sortEntries(entries, flags)
-
 	return entries, nil
 }
 
-// recurseDir is used internally for printing sub-directories in -R mode
-func recurseDir(paths []string, flags lsFlags) error {
-	for _, path := range paths {
-		fmt.Printf("\n%s:\n", path)
-
-		entries, err := listDirectory(path, flags)
-		if err != nil {
-			return err
-		}
-		printEntries(path, entries, flags)
-
-		// Then go deeper
+func printEntries(path string, entries []Entry, flags lsFlags) {
+	if flags.longListing {
+		total := int64(0)
 		for _, e := range entries {
-			if e.Info.IsDir() && e.Name != "." && e.Name != ".." {
-				subPaths := []string{e.FullPath}
-				err := recurseDir(subPaths, flags)
-				if err != nil {
-					return err
-				}
+			st := e.Info.Sys()
+			if st, ok := st.(*syscall.Stat_t); ok {
+				total += int64(st.Blocks) * 512 / 1024
 			}
 		}
+		fmt.Printf("total %d\n", total)
+		for _, e := range entries {
+			printLong(e)
+		}
+	} else {
+		for _, e := range entries {
+			fmt.Println(colorize(e.Name, e.Info.Mode()))
+
+		}
+		fmt.Println()
 	}
-	return nil
+
 }

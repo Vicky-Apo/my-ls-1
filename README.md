@@ -98,20 +98,19 @@ You can combine flags just like in the original `ls`.
 
 ---
 
-## 🧪 Audit-Proof Behavior
-
-- Matches system `ls` output and ordering
-- Displays symlinks correctly with or without trailing `/`
-- Handles invalid paths or permissions gracefully
-- Supports deep nested paths and complex flag combinations
-
----
 
 ## 📌 Notes
 
-- Uses only allowed Go packages (no `os/exec`)
-- Fully passes Zone01 audit scenarios
-- Intended as an educational system programming project
+⚠️ **Note on `ls` behavior:**  
+On some systems, the `ls` command is aliased to include extra options (e.g., `--group-directories-first`, `--color=auto`, etc.)  
+This may affect how the output looks or is ordered.  
+To compare results correctly, use the raw command `\ls` (with a backslash) to bypass any alias.  
+Example:
+```bash
+\ls -l
+./my-ls-1 -l
+```
+
 
 ---
 

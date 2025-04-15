@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 )
 
@@ -107,7 +106,7 @@ func listDirectory(dir string, flags lsFlags) ([]Entry, error) {
 	}
 
 	for _, fi := range files {
-		if !flags.showAll && strings.HasPrefix(fi.Name(), ".") {
+		if !flags.showAll && isHidden(fi.Name()) {
 			continue
 		}
 
@@ -132,7 +131,7 @@ func listDirectory(dir string, flags lsFlags) ([]Entry, error) {
 	return entries, nil
 }
 
-func printEntries(path string, entries []Entry, flags lsFlags) {
+func printEntries(_ string, entries []Entry, flags lsFlags) {
 	if flags.longListing {
 		total := int64(0)
 		for _, e := range entries {

@@ -1,1 +1,0 @@
-README.md  colors.go  flags.go  format.go  go.mod  listing.go  main.go  mine.txt  my-ls-1  real.txt  sort.go  utils.go

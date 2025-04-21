@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -23,12 +23,9 @@ func walk(paths []string, flags lsFlags) error {
 			return fmt.Errorf("cannot access '%s': %v", path, err)
 		}
 
+		// Show the directory header only when needed
 		if info.IsDir() && (len(paths) > 1 || flags.recursive || path != ".") {
-			relPath, err := filepath.Rel(".", path)
-			if err != nil {
-				relPath = path
-			}
-			fmt.Printf("./%s:\n", relPath)
+			fmt.Printf("%s:\n", path)
 		}
 
 		if info.IsDir() {
@@ -58,7 +55,7 @@ func walk(paths []string, flags lsFlags) error {
 				linkTarget = t
 			}
 			e := Entry{
-				Name:       filepath.Base(path),
+				Name:       getBase(path),
 				FullPath:   path,
 				Info:       info,
 				LinkTarget: linkTarget,
@@ -87,10 +84,11 @@ func listDirectory(dir string, flags lsFlags) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if flags.showAll {
-		// Manually add '.' and '..'
 		dot, _ := os.Stat(dir)
-		dotdot, _ := os.Stat(filepath.Join(dir, ".."))
+		dotdot, _ := os.Stat(dir + "/..")
+
 		entries = append(entries, Entry{
 			Name:       ".",
 			FullPath:   dir,
@@ -99,7 +97,7 @@ func listDirectory(dir string, flags lsFlags) ([]Entry, error) {
 		})
 		entries = append(entries, Entry{
 			Name:       "..",
-			FullPath:   filepath.Join(dir, ".."),
+			FullPath:   dir + "/..",
 			Info:       dotdot,
 			LinkTarget: "",
 		})
@@ -110,7 +108,7 @@ func listDirectory(dir string, flags lsFlags) ([]Entry, error) {
 			continue
 		}
 
-		fullPath := filepath.Join(dir, fi.Name())
+		fullPath := dir + "/" + fi.Name()
 		linkTarget := ""
 		if fi.Mode()&os.ModeSymlink != 0 {
 			target, err := os.Readlink(fullPath)
@@ -147,9 +145,15 @@ func printEntries(_ string, entries []Entry, flags lsFlags) {
 	} else {
 		for _, e := range entries {
 			fmt.Println(colorize(e.Name, e.Info.Mode()))
-
 		}
 		fmt.Println()
 	}
+}
 
+func getBase(path string) string {
+	if path == "" {
+		return ""
+	}
+	slash := strings.Split(path, "/")
+	return slash[len(slash)-1]
 }
